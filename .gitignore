@@ -1,0 +1,8 @@
+.browser-check/
+.browser-audio-test*/
+audio-results.html
+audio-browser.log
+preview.png
+test-results.html
+bite-results.html
+browser-errors.log

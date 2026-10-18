@@ -1,0 +1,36 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Audio smoke checks</title><body><h1>Audio smoke checks</h1><button id="run">Run checks</button><pre id="results">Ready</pre><script type="module">
+import { GameAudio } from './audio.js';
+async function run(){
+ const results=document.getElementById('results'),lines=[];
+ const check=(name,value)=>{lines.push(`${value?'PASS':'FAIL'} ${name}`);results.textContent=lines.join('\n');};
+ results.textContent='Loading audio...';const audio=new GameAudio();await audio.unlock();
+ for(const name of ['footstep','gunshot','reload','zombie']){
+  const buffer=audio.buffers.get(name);
+  check(`${name} decodes with audible samples`,buffer?.duration>0&&buffer.getChannelData(0).some(v=>Math.abs(v)>.001));
+ }
+ check('No failed downloads',audio.failures.length===0);
+ audio.setPaused(false);
+ const reload=audio.play('reload',{duration:1.5});
+ check('Reload fits 1.5 seconds',reload&&Math.abs(reload.source.buffer.duration/reload.source.playbackRate.value-1.5)<.001);
+ check('Overlapping gunshots supported',!!audio.play('gunshot')&&!!audio.play('gunshot'));
+ const listener={x:0,y:0,z:0,yaw:0},position={x:3,y:0,z:0};
+ const voice=audio.play('zombie',{position,listener});
+ check('Zombie source tracks its position',voice?.position===position);
+ // Inspect scheduled mix targets: headless virtual time does not advance the audio device clock.
+ let targetPan=0,targetGain=1;
+ const panTarget=voice.pan.pan.setTargetAtTime.bind(voice.pan.pan),gainTarget=voice.gain.gain.setTargetAtTime.bind(voice.gain.gain);
+ voice.pan.pan.setTargetAtTime=(value,...args)=>{targetPan=value;return panTarget(value,...args);};
+ voice.gain.gain.setTargetAtTime=(value,...args)=>{targetGain=value;return gainTarget(value,...args);};
+ audio.update(listener);check('Zombie to right pans right',targetPan>.8);
+ position.x=-3;audio.update(listener);check('Moving zombie pans left',targetPan<-.8);
+ position.x=30;audio.update(listener);check('Distant zombie fades out',targetGain===0);
+ audio.play('zombie');audio.play('zombie');check('Zombie overlap is bounded',audio.play('zombie')===null);
+ audio.setMuted(true);check('Mute immediately stops all voices',audio.voices.size===0&&audio.play('gunshot')===null);
+ audio.setMuted(false);check('Unmute allows sounds',!!audio.play('footstep'));
+ audio.setPaused(true);check('Pause stops playback and blocks new sounds',audio.voices.size===0&&audio.play('reload')===null);
+ audio.setPaused(false);audio.play('gunshot');audio.stopAll();check('Restart cleanup stops all voices',audio.voices.size===0);
+ await audio.context.close();document.body.dataset.complete='true';
+}
+document.getElementById('run').onclick=()=>run().catch(error=>document.getElementById('results').textContent+='\nFAIL '+error);
+if(new URLSearchParams(location.search).has('auto'))await run().catch(error=>document.getElementById('results').textContent+='\nFAIL '+error);
+</script></body></html>
